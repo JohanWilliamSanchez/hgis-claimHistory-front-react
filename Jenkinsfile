@@ -67,10 +67,9 @@ pipeline {
 
         stage('3. Build Frontend') {
             steps {
-                echo "Instalando dependencias y compilando con las nuevas variables de entorno..."
-                // El comando de build leerá automáticamente el .env que creamos en el paso anterior
-                sh 'npm ci'
-                sh 'npm run build' 
+                echo "Instalando dependencias y compilando..."
+                sh 'pnpm install --frozen-lockfile'
+                sh 'pnpm run build'
             }
         }
 
