@@ -27,26 +27,34 @@ pipeline {
                     echo "Consultando el Stack ${STACK_NAME} en AWS CloudFormation..."
                     script {
                         try {
-                            
-
-                            // 2. Obtener el ID de la distribución de CloudFront desde los Outputs del Stack
-                            // FORMA CORRECTA Y ROBUSTA:
+                            // 1. Obtener el ID de la distribución de CloudFront (Usando comillas simples para proteger la query)
                             def cloudfrontId = sh(
-                                script: """aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" --output text""",
+                                script: 'aws cloudformation describe-stacks --stack-name ' + env.STACK_NAME + ' --query "Stacks[0].Outputs[?OutputKey==\'CloudFrontDistributionId\'].OutputValue" --output text',
                                 returnStdout: true
                             ).trim()
 
-                            // 3. Obtener la URL del API Gateway para que el Frontend sepa a dónde apuntar
+                            // 2. Obtener la URL del API Gateway (Igual, protegiendo la query de la interpolación de Jenkins)
                             def apiUrl = sh(
-                                script: """aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" --output text""",
+                                script: 'aws cloudformation describe-stacks --stack-name ' + env.STACK_NAME + ' --query "Stacks[0].Outputs[?OutputKey==\'ApiGatewayUrl\'].OutputValue" --output text',
                                 returnStdout: true
                             ).trim()
 
-                            // Guardar en variables de entorno del pipeline para los siguientes stages
+                            // Agregar prints explícitos para verificar en la consola de Jenkins la veracidad de los datos
+                            echo "--- [DEBUG AWS OUTPUTS] ---"
+                            echo "CloudFront ID recuperado: '${cloudfrontId}'"
+                            echo "API URL recuperada: '${apiUrl}'"
+                            echo "---------------------------"
+
+                            // Control de seguridad: Si AWS devuelve "None" o vacío, detenemos el pipeline con un mensaje claro
+                            if (!cloudfrontId || cloudfrontId == "None" || cloudfrontId == "") {
+                                error "❌ El output 'CloudFrontDistributionId' no existe o está vacío en el stack ${STACK_NAME}. Verifica tu template.yaml en AWS."
+                            }
+
+                            // Guardar en variables de entorno globales del pipeline
                             env.DYNAMIC_BUCKET_NAME = env.BUCKET_NAME
                             env.DYNAMIC_CLOUDFRONT_ID = cloudfrontId
 
-                            // 4. Crear el archivo .env dinámicamente para la compilación de React/Nuxt
+                            // 3. Crear el archivo .env dinámicamente
                             echo "Generando archivo .env para el empaquetado..."
                             sh """
                                 echo "VITE_API_URL=${apiUrl}" > .env
