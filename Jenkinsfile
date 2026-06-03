@@ -10,6 +10,7 @@ pipeline {
         AWS_REGION   = 'us-east-1'
         // El nombre del Stack de CloudFormation del cual extraeremos los datos
         STACK_NAME   = "hgis-backend-${params.ENVIRONMENT}"
+        BUCKET_NAME     = "hgis-frontend-bucket-${params.ENVIRONMENT}"
     }
 
     stages {
@@ -26,26 +27,23 @@ pipeline {
                     echo "Consultando el Stack ${STACK_NAME} en AWS CloudFormation..."
                     script {
                         try {
-                            // 1. Obtener el nombre del Bucket de S3 desde los Outputs del Stack
-                            def bucketName = sh(
-                                script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue\" --output text",
-                                returnStdout: true
-                            ).trim()
+                            
 
                             // 2. Obtener el ID de la distribución de CloudFront desde los Outputs del Stack
+                            // FORMA CORRECTA Y ROBUSTA:
                             def cloudfrontId = sh(
-                                script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue\" --output text",
+                                script: """aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" --output text""",
                                 returnStdout: true
                             ).trim()
 
                             // 3. Obtener la URL del API Gateway para que el Frontend sepa a dónde apuntar
                             def apiUrl = sh(
-                                script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue\" --output text",
+                                script: """aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" --output text""",
                                 returnStdout: true
                             ).trim()
 
                             // Guardar en variables de entorno del pipeline para los siguientes stages
-                            env.DYNAMIC_BUCKET_NAME = bucketName
+                            env.DYNAMIC_BUCKET_NAME = env.BUCKET_NAME
                             env.DYNAMIC_CLOUDFRONT_ID = cloudfrontId
 
                             // 4. Crear el archivo .env dinámicamente para la compilación de React/Nuxt
