@@ -68,7 +68,7 @@ pipeline {
         stage('3. Build Frontend') {
             steps {
                 echo "Instalando dependencias y compilando..."
-                sh 'pnpm install --frozen-lockfile'
+                sh 'pnpm install'
                 sh 'pnpm run build'
             }
         }
