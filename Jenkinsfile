@@ -21,50 +21,66 @@ pipeline {
             }
         }
 
-        stage('2. Generate .env from CloudFormation') {
+        stage('2. Generate .env from SAM Outputs') {
             steps {
                 withAWS(credentials: "${AWS_CRED_ID}", region: "${AWS_REGION}") {
                     echo "Consultando el Stack ${STACK_NAME} en AWS CloudFormation..."
                     script {
                         try {
-                            // 1. Obtener el ID de la distribución de CloudFront (Usando comillas simples para proteger la query)
-                            def cloudfrontId = sh(
-                                script: 'aws cloudformation describe-stacks --stack-name ' + env.STACK_NAME + ' --query "Stacks[0].Outputs[?OutputKey==\'CloudFrontDistributionId\'].OutputValue" --output text',
-                                returnStdout: true
-                            ).trim()
-
-                            // 2. Obtener la URL del API Gateway (Igual, protegiendo la query de la interpolación de Jenkins)
+                            // 1. Obtener la URL de la API usando el Output exacto de tu SAM: ApiEndpoint
                             def apiUrl = sh(
-                                script: 'aws cloudformation describe-stacks --stack-name ' + env.STACK_NAME + ' --query "Stacks[0].Outputs[?OutputKey==\'ApiGatewayUrl\'].OutputValue" --output text',
+                                script: "aws cloudformation describe-stacks --stack-name ${env.STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue\" --output text",
                                 returnStdout: true
                             ).trim()
 
-                            // Agregar prints explícitos para verificar en la consola de Jenkins la veracidad de los datos
-                            echo "--- [DEBUG AWS OUTPUTS] ---"
-                            echo "CloudFront ID recuperado: '${cloudfrontId}'"
-                            echo "API URL recuperada: '${apiUrl}'"
+                            // 2. Obtener la URL de CloudFront usando tu Output actual: CloudFrontURL
+                            def cloudfrontUrl = sh(
+                                script: "aws cloudformation describe-stacks --stack-name ${env.STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='CloudFrontURL'].OutputValue\" --output text",
+                                returnStdout: true
+                            ).trim()
+
+                            // Remover el "https://" de la URL de CloudFront para poder buscar su ID limpiamente
+                            def domainName = cloudfrontUrl.replace("https://", "")
+
+                            echo "--- [DEBUG SAM OUTPUTS] ---"
+                            echo "API Endpoint detectado: '${apiUrl}'"
+                            echo "CloudFront URL detectada: '${cloudfrontUrl}'"
+                            echo "Dominio para buscar ID: '${domainName}'"
                             echo "---------------------------"
 
-                            // Control de seguridad: Si AWS devuelve "None" o vacío, detenemos el pipeline con un mensaje claro
+                            // 3. OBTENER EL ID DE CLOUDFRONT DINÁMICAMENTE USANDO EL DOMINIO
+                            // Este comando busca en CloudFront cuál distribución tiene asignado ese dominio exacto
+                            echo "Buscando el ID de distribución para el dominio ${domainName}..."
+                            def cloudfrontId = sh(
+                                script: "aws cloudfront list-distributions --query \"DistributionList.Items[?DomainName=='${domainName}'].Id\" --output text",
+                                returnStdout: true
+                            ).trim()
+
+                            echo "👉 ID de CloudFront encontrado: '${cloudfrontId}'"
+
+                            // Validaciones de Seguridad
+                            if (!apiUrl || apiUrl == "None") {
+                                error "❌ No se pudo recuperar el ApiEndpoint del stack."
+                            }
                             if (!cloudfrontId || cloudfrontId == "None" || cloudfrontId == "") {
-                                error "❌ El output 'CloudFrontDistributionId' no existe o está vacío en el stack ${STACK_NAME}. Verifica tu template.yaml en AWS."
+                                error "❌ No se pudo determinar el ID de CloudFront para el dominio ${domainName}."
                             }
 
-                            // Guardar en variables de entorno globales del pipeline
+                            // Guardar variables globales para los siguientes stages
                             env.DYNAMIC_BUCKET_NAME = env.BUCKET_NAME
                             env.DYNAMIC_CLOUDFRONT_ID = cloudfrontId
 
-                            // 3. Crear el archivo .env dinámicamente
+                            // 4. Crear el archivo .env dinámicamente para Vite (React)
                             echo "Generando archivo .env para el empaquetado..."
                             sh """
                                 echo "VITE_API_URL=${apiUrl}" > .env
                                 echo "VITE_ENVIRONMENT=${params.ENVIRONMENT}" >> .env
-                                echo "Archivo .env creado con éxito con los siguientes valores:"
+                                echo "Archivo .env creado con éxito:"
                                 cat .env
                             """
 
                         } catch (Exception e) {
-                            error "Error al consultar CloudFormation. Asegúrate de que el Stack '${STACK_NAME}' exista en AWS. Detalles: ${e.message}"
+                            error "Error al procesar la infraestructura de AWS. Detalles: ${e.message}"
                         }
                     }
                 }
