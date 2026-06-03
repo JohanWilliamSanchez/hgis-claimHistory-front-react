@@ -67,7 +67,9 @@ pipeline {
 
         stage('3. Build Frontend') {
             steps {
-                echo "Instalando dependencias y compilando..."
+                echo "Limpiando lockfile e instalando dependencias estables..."
+                // Reconstruye las resoluciones desde cero
+                sh 'pnpm clean --lockfile'
                 sh 'pnpm install'
                 sh 'pnpm run build'
             }
